@@ -6,79 +6,47 @@
     android:layout_height="match_parent"
     tools:context=".ui.room.RoomActivity">
 
-    <TextView
-        android:id="@+id/tvRoomName"
+    <ProgressBar
+        android:id="@+id/loadingSpinner"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textSize="24sp"
-        android:textStyle="bold"
-        android:layout_margin="16dp"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
-
-    <Button
-        android:id="@+id/btnSelectMusic"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Add Music"
-        android:layout_margin="16dp"
-        android:visibility="gone"
-        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/rvMessages"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        app:layout_constraintTop_toBottomOf="@id/tvRoomName"
-        app:layout_constraintBottom_toTopOf="@id/llMessageInput" />
-
     <LinearLayout
-        android:id="@+id/llMessageInput"
+        android:id="@+id/roomContent"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="8dp"
-        app:layout_constraintBottom_toTopOf="@id/playerControls">
-
-        <EditText
-            android:id="@+id/etMessage"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:hint="Type a message..."
-            android:inputType="text" />
-
-        <Button
-            android:id="@+id/btnSend"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Send" />
-
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/playerControls"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="16dp"
-        android:background="#EEE"
-        app:layout_constraintBottom_toBottomOf="parent">
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:padding="16dp">
 
         <TextView
-            android:id="@+id/tvCurrentTrack"
-            android:layout_width="0dp"
+            android:id="@+id/tvRoomName"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="No track playing" />
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:text="Room Name" />
+
+        <TextView
+            android:id="@+id/tvTrackStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="Waiting for host..."
+            android:textAlignment="center" />
 
         <ImageButton
-            android:id="@+id/btnPlayPause"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:src="@android:drawable/ic_media_play"
-            android:contentDescription="Play or Pause" />
+            android:id="@+id/btnRoomPlayPause"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:layout_gravity="center"
+            android:layout_marginTop="32dp"
+            android:scaleType="fitCenter"
+            android:src="@android:drawable/ic_media_play" />
 
     </LinearLayout>
 

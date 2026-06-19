@@ -1,27 +1,40 @@
 package com.example.musicalchat.ui.room;
 
+import android.Manifest;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.ServiceConnection;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
-
+import android.os.IBinder;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.View;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.lifecycle.ViewModelProvider;
-import androidx.recyclerview.widget.LinearLayoutManager;
-
-import com.example.musicalchat.data.model.Message;
-import com.example.musicalchat.data.model.PlaybackState;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.media3.common.MediaMetadata;
+import androidx.media3.common.Player;
+import androidx.media3.session.MediaController;
+import androidx.media3.session.SessionToken;
 import com.example.musicalchat.databinding.ActivityRoomBinding;
-import com.example.musicalchat.player.PlayerManager;
-import com.example.musicalchat.player.SyncEngine;
-import com.google.firebase.auth.FirebaseAuth;
+import com.example.musicalchat.player.MusicPlaybackService;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.ValueEventListener;
 
 public class RoomActivity extends AppCompatActivity {
+
     private ActivityRoomBinding binding;
-    private RoomViewModel roomViewModel;
-    private ChatAdapter chatAdapter;
+    private MediaController mediaController;
+    private ListenableFuture<MediaController> controllerFuture;
     private String roomId;
-    private String hostUid;
-    private PlayerManager playerManager;
-    private SyncEngine syncEngine;
-    private boolean isHost;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -30,128 +43,119 @@ public class RoomActivity extends AppCompatActivity {
         setContentView(binding.getRoot());
 
         roomId = getIntent().getStringExtra("ROOM_ID");
-        String roomName = getIntent().getStringExtra("ROOM_NAME");
-        hostUid = getIntent().getStringExtra("HOST_UID");
-        binding.tvRoomName.setText(roomName);
-
-        String currentUid = FirebaseAuth.getInstance().getUid();
-        isHost = currentUid != null && currentUid.equals(hostUid);
-
-        roomViewModel = new ViewModelProvider(this).get(RoomViewModel.class);
-        playerManager = PlayerManager.getInstance(this);
-        
-        if (isHost) {
-            playerManager.setListener(new PlayerManager.PlayerStateListener() {
-                @Override
-                public void onPlaybackStateChanged(boolean isPlaying) {
-                    updateRemotePlaybackState();
-                }
-
-                @Override
-                public void onPositionDiscontinuity() {
-                    updateRemotePlaybackState();
-                }
-            });
+        if (roomId != null) {
+            Intent serviceIntent = new Intent(this, MusicPlaybackService.class);
+            serviceIntent.setAction("JOIN_ROOM");
+            serviceIntent.putExtra("ROOM_ID", roomId);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent);
+            } else {
+                startService(serviceIntent);
+            }
+            observeRoomMeta();
+        } else {
+            finish();
         }
-        
-        syncEngine = new SyncEngine(playerManager, (trackId, positionMs, isPlaying) -> {
-            if (!isHost) {
-                // For now, we don't have getTrackById, so we rely on audioUrl being in PlaybackState
-                // This logic will be handled when we receive the state update
-            }
-        });
 
-        setupRecyclerView();
+        checkNotificationPermission();
+        setupListeners();
+    }
 
-        roomViewModel.getMessages(roomId).observe(this, messages -> {
-            if (messages != null) {
-                chatAdapter.setMessages(messages);
-                binding.rvMessages.scrollToPosition(messages.size() - 1);
-            }
-        });
+    private void observeRoomMeta() {
+        FirebaseDatabase.getInstance().getReference("rooms")
+                .child(roomId).child("room_meta").child("room_name")
+                .addValueEventListener(new ValueEventListener() {
+                    @Override
+                    public void onDataChange(@NonNull DataSnapshot snapshot) {
+                        String name = snapshot.getValue(String.class);
+                        if (name != null) {
+                            binding.tvRoomName.setText(name);
+                            showContent();
+                        }
+                    }
 
-        roomViewModel.getPlaybackState(roomId).observe(this, state -> {
-            if (state != null && !isHost) {
-                syncWithRemote(state);
-            }
-        });
+                    @Override
+                    public void onCancelled(@NonNull DatabaseError error) {}
+                });
+    }
 
-        binding.btnSend.setOnClickListener(v -> {
-            String text = binding.etMessage.getText().toString();
-            if (!text.isEmpty()) {
-                String uid = FirebaseAuth.getInstance().getUid();
-                Message message = new Message(null, uid, text, "text");
-                roomViewModel.sendMessage(roomId, message);
-                binding.etMessage.setText("");
-            }
-        });
+    private void showContent() {
+        binding.loadingSpinner.setVisibility(View.GONE);
+        binding.roomContent.setVisibility(View.VISIBLE);
+    }
 
-        binding.btnPlayPause.setOnClickListener(v -> {
-            if (isHost) {
-                if (playerManager.isPlaying()) {
-                    playerManager.pause();
+    private void setupListeners() {
+        binding.btnRoomPlayPause.setOnClickListener(v -> {
+            if (mediaController != null) {
+                if (mediaController.isPlaying()) {
+                    mediaController.pause();
                 } else {
-                    playerManager.resume();
+                    mediaController.play();
                 }
-                updateRemotePlaybackState();
             }
         });
-
-        updatePlayerUI();
     }
 
-    private void syncWithRemote(PlaybackState state) {
-        if (state.getTrackId() != null && (playerManager.getCurrentTrack() == null || 
-                !state.getTrackId().equals(playerManager.getCurrentTrack().getId()))) {
-            // Track changed, play it
-            com.example.musicalchat.data.model.Track track = new com.example.musicalchat.data.model.Track(
-                    state.getTrackId(),
-                    state.getTrackTitle(),
-                    "Remote Artist", // Placeholder
-                    state.getAudioUrl()
-            );
-            playerManager.playTrack(track);
+    @Override
+    protected void onStart() {
+        super.onStart();
+        initializeController();
+    }
+
+    private void initializeController() {
+        SessionToken sessionToken = new SessionToken(this, new ComponentName(this, MusicPlaybackService.class));
+        controllerFuture = new MediaController.Builder(this, sessionToken).buildAsync();
+        controllerFuture.addListener(() -> {
+            try {
+                mediaController = controllerFuture.get();
+                updateUiState();
+                mediaController.addListener(new Player.Listener() {
+                    @Override
+                    public void onIsPlayingChanged(boolean isPlaying) {
+                        updateUiState();
+                    }
+
+                    @Override
+                    public void onMediaMetadataChanged(@NonNull MediaMetadata mediaMetadata) {
+                        updateUiState();
+                    }
+                });
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }, MoreExecutors.directExecutor());
+    }
+
+    private void updateUiState() {
+        if (mediaController == null) return;
+
+        if (mediaController.isPlaying()) {
+            binding.btnRoomPlayPause.setImageResource(android.R.drawable.ic_media_pause);
+        } else {
+            binding.btnRoomPlayPause.setImageResource(android.R.drawable.ic_media_play);
         }
-        
-        if (state.isPlaying() && !playerManager.isPlaying()) {
-            playerManager.resume();
-        } else if (!state.isPlaying() && playerManager.isPlaying()) {
-            playerManager.pause();
+
+        MediaMetadata metadata = mediaController.getMediaMetadata();
+        if (metadata.title != null) {
+            binding.tvTrackStatus.setText("Playing: " + metadata.title);
+        } else {
+            binding.tvTrackStatus.setText("Waiting for host...");
         }
-        
-        // Drift correction
-        long drift = Math.abs(state.getPositionMs() - playerManager.getCurrentPosition());
-        if (drift > 1000) {
-            playerManager.seekTo(state.getPositionMs());
+    }
+
+    @Override
+    protected void onStop() {
+        if (controllerFuture != null) {
+            MediaController.releaseFuture(controllerFuture);
         }
-        updatePlayerUI();
+        super.onStop();
     }
 
-    private void updateRemotePlaybackState() {
-        if (!isHost || playerManager.getCurrentTrack() == null) return;
-
-        PlaybackState state = new PlaybackState(
-                playerManager.getCurrentTrack().getId(),
-                playerManager.getCurrentTrack().getAudioUrl(),
-                playerManager.getCurrentTrack().getTitle(),
-                playerManager.isPlaying(),
-                playerManager.getCurrentPosition(),
-                hostUid
-        );
-        roomViewModel.updatePlaybackState(roomId, state);
-    }
-
-    private void setupRecyclerView() {
-        chatAdapter = new ChatAdapter();
-        binding.rvMessages.setLayoutManager(new LinearLayoutManager(this));
-        binding.rvMessages.setAdapter(chatAdapter);
-    }
-
-    private void updatePlayerUI() {
-        if (playerManager.getCurrentTrack() != null) {
-            binding.tvCurrentTrack.setText(playerManager.getCurrentTrack().getTitle());
-            binding.btnPlayPause.setImageResource(playerManager.isPlaying() ? 
-                    android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play);
+    private void checkNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, 101);
+            }
         }
     }
 }

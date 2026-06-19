@@ -17,7 +17,16 @@ import com.example.musicalchat.player.PlayerManager;
 import com.example.musicalchat.ui.auth.LoginActivity;
 import com.example.musicalchat.ui.home.HomeViewModel;
 import com.example.musicalchat.ui.home.TrackAdapter;
+import com.example.musicalchat.data.model.RoomMeta;
+import com.example.musicalchat.ui.room.RoomActivity;
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.database.FirebaseDatabase;
+
+import com.google.firebase.database.DatabaseReference;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
     private ActivityMainBinding binding;
@@ -56,6 +65,8 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        binding.btnCreateRoom.setOnClickListener(v -> createRoom());
+
         binding.btnRooms.setOnClickListener(v -> {
             startActivity(new Intent(this, com.example.musicalchat.ui.room.RoomsActivity.class));
         });
@@ -75,6 +86,37 @@ public class MainActivity extends AppCompatActivity {
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
             return insets;
         });
+    }
+
+    private void createRoom() {
+        String localUid = FirebaseAuth.getInstance().getCurrentUser().getUid();
+        String newRoomId = java.util.UUID.randomUUID().toString();
+
+        DatabaseReference roomRef = FirebaseDatabase.getInstance().getReference("rooms").child(newRoomId);
+
+        Map<String, Object> completeRoomBundle = new HashMap<>();
+
+        Map<String, Object> roomMeta = new HashMap<>();
+        roomMeta.put("room_name", "test");
+        roomMeta.put("host_id", localUid);
+        roomMeta.put("is_private", false);
+        roomMeta.put("created_at", System.currentTimeMillis());
+        roomMeta.put("needs_new_host", false);
+        completeRoomBundle.put("room_meta", roomMeta);
+
+        Map<String, Object> presence = new HashMap<>();
+        presence.put(localUid, true);
+        completeRoomBundle.put("presence", presence);
+
+        roomRef.setValue(completeRoomBundle)
+                .addOnSuccessListener(aVoid -> {
+                    Intent intent = new Intent(MainActivity.this, RoomActivity.class);
+                    intent.putExtra("ROOM_ID", newRoomId);
+                    startActivity(intent);
+                })
+                .addOnFailureListener(e -> {
+                    android.widget.Toast.makeText(MainActivity.this, "Upload Failed: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
+                });
     }
 
     private void setupRecyclerView() {

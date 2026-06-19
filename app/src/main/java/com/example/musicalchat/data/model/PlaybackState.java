@@ -1,58 +1,92 @@
 package com.example.musicalchat.data.model;
 
 import com.google.firebase.Timestamp;
-import com.google.firebase.firestore.ServerTimestamp;
+import com.google.firebase.database.IgnoreExtraProperties;
 
-import java.util.ArrayList;
-import java.util.List;
-
+@IgnoreExtraProperties
 public class PlaybackState {
     private String trackId;
-    private String audioUrl;
-    private String trackTitle;
-    private boolean isPlaying;
+    private boolean playing;
     private long positionMs;
-    private String hostUid;
-    private List<String> queue;
-    
-    @ServerTimestamp
     private Timestamp lastUpdated;
 
+    // Fields for Realtime Database compatibility
+    public String current_track_url;
+    public String current_track_title;
+    public boolean is_playing;
+    public long current_position_ms;
+    public long last_updated_system_time;
+
     public PlaybackState() {
-        this.queue = new ArrayList<>();
+        // Default constructor required for calls to DataSnapshot.getValue(PlaybackState.class)
     }
 
-    public PlaybackState(String trackId, String audioUrl, String trackTitle, boolean isPlaying, long positionMs, String hostUid) {
+    public PlaybackState(String trackId, boolean playing, long positionMs, Timestamp lastUpdated) {
         this.trackId = trackId;
-        this.audioUrl = audioUrl;
-        this.trackTitle = trackTitle;
-        this.isPlaying = isPlaying;
+        this.playing = playing;
         this.positionMs = positionMs;
-        this.hostUid = hostUid;
-        this.queue = new ArrayList<>();
+        this.lastUpdated = lastUpdated;
+        
+        // Sync older fields
+        this.current_track_url = trackId;
+        this.is_playing = playing;
+        this.current_position_ms = positionMs;
+        if (lastUpdated != null) {
+            this.last_updated_system_time = lastUpdated.toDate().getTime();
+        }
     }
 
-    public String getTrackId() { return trackId; }
-    public void setTrackId(String trackId) { this.trackId = trackId; }
+    public PlaybackState(String current_track_url, String current_track_title, boolean is_playing, long current_position_ms, long last_updated_system_time) {
+        this.current_track_url = current_track_url;
+        this.current_track_title = current_track_title;
+        this.is_playing = is_playing;
+        this.current_position_ms = current_position_ms;
+        this.last_updated_system_time = last_updated_system_time;
+        
+        // Sync newer fields
+        this.trackId = current_track_url;
+        this.playing = is_playing;
+        this.positionMs = current_position_ms;
+        this.lastUpdated = new Timestamp(new java.util.Date(last_updated_system_time));
+    }
 
-    public String getAudioUrl() { return audioUrl; }
-    public void setAudioUrl(String audioUrl) { this.audioUrl = audioUrl; }
+    // Getters and Setters for SyncEngine and Firestore
+    public String getTrackId() {
+        return trackId != null ? trackId : current_track_url;
+    }
 
-    public String getTrackTitle() { return trackTitle; }
-    public void setTrackTitle(String trackTitle) { this.trackTitle = trackTitle; }
+    public void setTrackId(String trackId) {
+        this.trackId = trackId;
+        this.current_track_url = trackId;
+    }
 
-    public boolean isPlaying() { return isPlaying; }
-    public void setPlaying(boolean playing) { isPlaying = playing; }
+    public boolean isPlaying() {
+        return playing || is_playing;
+    }
 
-    public long getPositionMs() { return positionMs; }
-    public void setPositionMs(long positionMs) { this.positionMs = positionMs; }
+    public void setPlaying(boolean playing) {
+        this.playing = playing;
+        this.is_playing = playing;
+    }
 
-    public String getHostUid() { return hostUid; }
-    public void setHostUid(String hostUid) { this.hostUid = hostUid; }
+    public long getPositionMs() {
+        return positionMs != 0 ? positionMs : current_position_ms;
+    }
 
-    public List<String> getQueue() { return queue; }
-    public void setQueue(List<String> queue) { this.queue = queue; }
+    public void setPositionMs(long positionMs) {
+        this.positionMs = positionMs;
+        this.current_position_ms = positionMs;
+    }
 
-    public Timestamp getLastUpdated() { return lastUpdated; }
-    public void setLastUpdated(Timestamp lastUpdated) { this.lastUpdated = lastUpdated; }
+    public Timestamp getLastUpdated() {
+        if (lastUpdated != null) return lastUpdated;
+        return new Timestamp(new java.util.Date(last_updated_system_time));
+    }
+
+    public void setLastUpdated(Timestamp lastUpdated) {
+        this.lastUpdated = lastUpdated;
+        if (lastUpdated != null) {
+            this.last_updated_system_time = lastUpdated.toDate().getTime();
+        }
+    }
 }
